@@ -110,10 +110,10 @@ async function endGame(session: GameSession, result: 'white' | 'black' | 'draw',
   const drawPayout = Math.max(0, roundMoney(entryFee - 1));
   const whitePayout = result === 'white' ? winnerPayout : result === 'draw' ? drawPayout : 0;
   const blackPayout = result === 'black' ? winnerPayout : result === 'draw' ? drawPayout : 0;
-  const platformFee = 0;
+  const platformFee = roundMoney(pot - whitePayout - blackPayout);
 
   await withTransaction(async (client) => {
-    await run(`
+    await client.query(`
       UPDATE games
       SET status = 'finished',
           result = $1,
@@ -123,55 +123,55 @@ async function endGame(session: GameSession, result: 'white' | 'black' | 'draw',
           black_payout = $5,
           platform_fee = $6
       WHERE id = $7
-    `, [result, now, JSON.stringify(session.gameState), whitePayout, blackPayout, platformFee, session.id], client);
+    `, [result, now, JSON.stringify(session.gameState), whitePayout, blackPayout, platformFee, session.id]);
 
-    await run(`
+    await client.query(`
       UPDATE game_escrow
       SET status = $1, released_at = $2
       WHERE game_id = $3
-    `, [result === 'draw' ? 'refunded' : 'released', now, session.id], client);
+    `, [result === 'draw' ? 'refunded' : 'released', now, session.id]);
 
-    await run('UPDATE users SET games_played = games_played + 1, updated_at = NOW() WHERE id IN ($1, $2)', [session.whiteUserId, session.blackUserId], client);
+    await client.query('UPDATE users SET games_played = games_played + 1, updated_at = NOW() WHERE id IN ($1, $2)', [session.whiteUserId, session.blackUserId]);
     if (result === 'white') {
-      await run('UPDATE users SET games_won = games_won + 1 WHERE id = $1', [session.whiteUserId], client);
-      await run('UPDATE users SET games_lost = games_lost + 1 WHERE id = $1', [session.blackUserId], client);
+      await client.query('UPDATE users SET games_won = games_won + 1 WHERE id = $1', [session.whiteUserId]);
+      await client.query('UPDATE users SET games_lost = games_lost + 1 WHERE id = $1', [session.blackUserId]);
     } else if (result === 'black') {
-      await run('UPDATE users SET games_won = games_won + 1 WHERE id = $1', [session.blackUserId], client);
-      await run('UPDATE users SET games_lost = games_lost + 1 WHERE id = $1', [session.whiteUserId], client);
+      await client.query('UPDATE users SET games_won = games_won + 1 WHERE id = $1', [session.blackUserId]);
+      await client.query('UPDATE users SET games_lost = games_lost + 1 WHERE id = $1', [session.whiteUserId]);
     } else {
-      await run('UPDATE users SET games_draw = games_draw + 1 WHERE id = $1', [session.whiteUserId], client);
-      await run('UPDATE users SET games_draw = games_draw + 1 WHERE id = $1', [session.blackUserId], client);
+      await client.query('UPDATE users SET games_draw = games_draw + 1 WHERE id = $1', [session.whiteUserId]);
+      await client.query('UPDATE users SET games_draw = games_draw + 1 WHERE id = $1', [session.blackUserId]);
     }
 
     if (whitePayout > 0) {
-      await run('UPDATE users SET wallet_balance = wallet_balance + $1 WHERE id = $2', [whitePayout, session.whiteUserId], client);
+      await client.query('UPDATE users SET wallet_balance = wallet_balance + $1 WHERE id = $2', [whitePayout, session.whiteUserId]);
     }
     if (blackPayout > 0) {
-      await run('UPDATE users SET wallet_balance = wallet_balance + $1 WHERE id = $2', [blackPayout, session.blackUserId], client);
+      await client.query('UPDATE users SET wallet_balance = wallet_balance + $1 WHERE id = $2', [blackPayout, session.blackUserId]);
     }
 
     if (platformFee > 0) {
-      await run('UPDATE app_wallet SET balance = balance + $1, updated_at = NOW() WHERE id = 1', [platformFee], client);
+      await client.query('UPDATE app_wallet SET balance = balance + $1, updated_at = NOW() WHERE id = 1', [platformFee]);
     }
 
     const txIdW = randomUUID();
     const txIdB = randomUUID();
-    await run(`
+    await client.query(`
       INSERT INTO transactions (id, user_id, type, amount, status, created_at, processed_at)
       VALUES ($1, $2, $3, $4, 'completed', $5, $6)
-    `, [txIdW, session.whiteUserId, result === 'draw' ? 'game_draw' : result === 'white' ? 'game_win' : 'game_loss', whitePayout, now, now], client);
-    await run(`
+    `, [txIdW, session.whiteUserId, result === 'draw' ? 'game_draw' : result === 'white' ? 'game_win' : 'game_loss', whitePayout, now, now]);
+    await client.query(`
       INSERT INTO transactions (id, user_id, type, amount, status, created_at, processed_at)
       VALUES ($1, $2, $3, $4, 'completed', $5, $6)
-    `, [txIdB, session.blackUserId, result === 'draw' ? 'game_draw' : result === 'black' ? 'game_win' : 'game_loss', blackPayout, now, now], client);
+    `, [txIdB, session.blackUserId, result === 'draw' ? 'game_draw' : result === 'black' ? 'game_win' : 'game_loss', blackPayout, now, now]);
 
     const whiteEarnings = Math.max(0, whitePayout - entryFee);
     const blackEarnings = Math.max(0, blackPayout - entryFee);
     if (whiteEarnings > 0) {
-      await run('UPDATE users SET total_earnings = total_earnings + $1 WHERE id = $2', [whiteEarnings, session.whiteUserId], client);
+      await client.query('UPDATE users SET total_earnings = total_earnings + $1 WHERE id = $2', [whiteEarnings, session.whiteUserId]);
     }
     if (blackEarnings > 0) {
-      await run('UPDATE users SET total_earnings = total_earnings + $1 WHERE id = $2', [blackEarnings, session.blackUserId], client);
+      await client.query('UPDATE users SET total_earnings = total_earnings + $1 WHERE id = $2', [blackEarnings, session.blackUserId]);
     }
   });
 
@@ -245,27 +245,29 @@ async function tryMatch(session: GameSession) {
 
   try {
     await withTransaction(async (client) => {
-      const white = await getOne<{ wallet_balance: number }>('SELECT wallet_balance FROM users WHERE id = $1', [session.whiteUserId], client);
-      const black = await getOne<{ wallet_balance: number }>('SELECT wallet_balance FROM users WHERE id = $1', [session.blackUserId], client);
+      const whiteRes = await client.query<{ wallet_balance: number }>('SELECT wallet_balance FROM users WHERE id = $1', [session.whiteUserId]);
+      const blackRes = await client.query<{ wallet_balance: number }>('SELECT wallet_balance FROM users WHERE id = $1', [session.blackUserId]);
+      const white = whiteRes.rows[0];
+      const black = blackRes.rows[0];
       if (!white || !black || white.wallet_balance < cfg.entryFee || black.wallet_balance < cfg.entryFee) {
         throw new Error('Insufficient balance');
       }
 
-      await run('UPDATE users SET wallet_balance = wallet_balance - $1 WHERE id = $2', [cfg.entryFee, session.whiteUserId], client);
-      await run('UPDATE users SET wallet_balance = wallet_balance - $1 WHERE id = $2', [cfg.entryFee, session.blackUserId], client);
+      await client.query('UPDATE users SET wallet_balance = wallet_balance - $1 WHERE id = $2', [cfg.entryFee, session.whiteUserId]);
+      await client.query('UPDATE users SET wallet_balance = wallet_balance - $1 WHERE id = $2', [cfg.entryFee, session.blackUserId]);
 
       const txIdW = randomUUID();
       const txIdB = randomUUID();
-      await run(`
+      await client.query(`
         INSERT INTO transactions (id, user_id, type, amount, status, created_at, processed_at)
         VALUES ($1, $2, 'game_entry', $3, 'completed', $4, $5)
-      `, [txIdW, session.whiteUserId, -cfg.entryFee, now, now], client);
-      await run(`
+      `, [txIdW, session.whiteUserId, -cfg.entryFee, now, now]);
+      await client.query(`
         INSERT INTO transactions (id, user_id, type, amount, status, created_at, processed_at)
         VALUES ($1, $2, 'game_entry', $3, 'completed', $4, $5)
-      `, [txIdB, session.blackUserId, -cfg.entryFee, now, now], client);
+      `, [txIdB, session.blackUserId, -cfg.entryFee, now, now]);
 
-      await run(`
+      await client.query(`
         INSERT INTO games (id, mode, white_user_id, black_user_id, status, game_state_json, white_time_remaining, black_time_remaining, entry_fee, started_at, created_at)
         VALUES ($1, $2, $3, $4, 'playing', $5, $6, $7, $8, $9, $10)
       `, [
@@ -279,12 +281,12 @@ async function tryMatch(session: GameSession) {
         session.entryFee,
         now,
         now
-      ], client);
+      ]);
 
-      await run(`
+      await client.query(`
         INSERT INTO game_escrow (game_id, white_user_id, black_user_id, entry_fee, total_amount, status, created_at)
         VALUES ($1, $2, $3, $4, $5, 'held', $6)
-      `, [gameId, session.whiteUserId, session.blackUserId, cfg.entryFee, roundMoney(cfg.entryFee * 2), now], client);
+      `, [gameId, session.whiteUserId, session.blackUserId, cfg.entryFee, roundMoney(cfg.entryFee * 2), now]);
     });
   } catch (error) {
     send(session.whiteSocket, 'error', { message: error instanceof Error ? error.message : 'Match failed' });
@@ -399,7 +401,18 @@ async function handleJoinGame(ws: WebSocket, userId: string, username: string, m
       disconnected: { white: false, black: false },
       disconnectTimers: {},
     };
-    tryMatch(session);
+    try {
+      await tryMatch(session);
+    } catch (error) {
+      // Clean up maps if tryMatch fails
+      socketToGame.delete(ws);
+      socketToGame.delete(other.socket);
+      socketToUserId.delete(ws);
+      socketToUserId.delete(other.socket);
+      userToGame.delete(userId);
+      userToGame.delete(other.userId);
+      throw error; // Re-throw to be handled by outer catch if needed
+    }
   } else {
     const entry: QueuedPlayer = { userId, username, socket: ws, mode, joinedAt: Date.now() };
     entry.timeoutId = setTimeout(() => {

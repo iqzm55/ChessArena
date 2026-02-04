@@ -1,4 +1,4 @@
-import 'dotenv/config'; // loads .env automatically
+// backend/db/index.ts
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
@@ -6,23 +6,35 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DATABASE_URL = process.env.DATABASE_URL || `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`;
-
+/**
+ * Build DATABASE_URL dynamically for local dev if not provided
+ */
+let DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
-  throw new Error('Database connection string is missing. Please set DATABASE_URL or individual DB_* environment variables.');
+  const host = process.env.DB_HOST;
+  const port = process.env.DB_PORT;
+  const name = process.env.DB_NAME;
+  const user = process.env.DB_USER;
+  const password = process.env.DB_PASSWORD;
+
+  if (!host || !port || !name || !user || !password) {
+    throw new Error(
+      'Database credentials are missing! Set DATABASE_URL for production or DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT for local development.'
+    );
+  }
+
+  DATABASE_URL = `postgres://${user}:${encodeURIComponent(password)}@${host}:${port}/${name}`;
 }
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production'
-    ? { rejectUnauthorized: false }
-    : undefined,
+  ssl:
+    process.env.NODE_ENV === 'production'
+      ? { rejectUnauthorized: false } // Railway requires SSL
+      : undefined,
 });
 
 let initPromise: Promise<void> | null = null;
-
-/** pg expects mutable arrays; we keep readonly everywhere else */
-type SqlParams = readonly unknown[];
 
 function getSchemaPath(): string {
   const distPath = join(__dirname, 'schema.sql');
@@ -34,7 +46,11 @@ async function initDb(): Promise<void> {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    const schema = readFileSync(getSchemaPath(), 'utf-8');
+    const schemaPath = getSchemaPath();
+    if (!existsSync(schemaPath)) {
+      throw new Error(`Schema file not found at ${schemaPath}`);
+    }
+    const schema = readFileSync(schemaPath, 'utf-8');
     await pool.query(schema);
   })();
 
@@ -46,39 +62,37 @@ export async function getDb(): Promise<Pool> {
   return pool;
 }
 
-export async function query<T extends QueryResultRow>(
+export async function query<T extends QueryResultRow = any>( // eslint-disable-line @typescript-eslint/no-explicit-any
   text: string,
-  params: SqlParams = []
+  params: unknown[] = []
 ): Promise<QueryResult<T>> {
   await initDb();
-  return pool.query<T>(text, params as unknown[]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return pool.query<T>(text, params as any[]);
 }
 
-export async function getOne<T extends QueryResultRow>(
+export async function getOne<T extends QueryResultRow = any>( // eslint-disable-line @typescript-eslint/no-explicit-any
   text: string,
-  params: SqlParams = [],
-  client?: PoolClient
+  params: unknown[] = []
 ): Promise<T | undefined> {
-  const res = client ? await client.query<T>(text, params as unknown[]) : await query<T>(text, params);
+  const res = await query<T>(text, params);
   return res.rows[0];
 }
 
-export async function getAll<T extends QueryResultRow>(
+export async function getAll<T extends QueryResultRow = any>( // eslint-disable-line @typescript-eslint/no-explicit-any
   text: string,
-  params: SqlParams = [],
-  client?: PoolClient
+  params: unknown[] = []
 ): Promise<T[]> {
-  const res = client ? await client.query<T>(text, params as unknown[]) : await query<T>(text, params);
+  const res = await query<T>(text, params);
   return res.rows;
 }
 
 export async function run(
   text: string,
-  params: SqlParams = [],
-  client?: PoolClient
-): Promise<{ rowCount: number }> {
-  const res = client ? await client.query(text, params as unknown[]) : await query(text, params);
-  return { rowCount: res.rowCount ?? 0 };
+  params: unknown[] = []
+): Promise<{ rowCount: number | null | undefined }> {
+  const res = await query(text, params);
+  return { rowCount: res.rowCount };
 }
 
 export async function withTransaction<T>(
@@ -86,7 +100,6 @@ export async function withTransaction<T>(
 ): Promise<T> {
   await initDb();
   const client = await pool.connect();
-
   try {
     await client.query('BEGIN');
     const result = await fn(client);
@@ -104,8 +117,7 @@ export async function closeDb(): Promise<void> {
   await pool.end();
 }
 
-/* ======================= TYPES ======================= */
-
+// ===== Types =====
 export type UserRow = {
   id: string;
   username: string;
@@ -139,7 +151,7 @@ export type TransactionRow = {
   amount: number;
   crypto_type: string | null;
   crypto_address: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'completed';
+  status: string;
   created_at: string;
   processed_at: string | null;
 };
@@ -149,8 +161,8 @@ export type GameRow = {
   mode: string;
   white_user_id: string | null;
   black_user_id: string | null;
-  status: 'waiting' | 'playing' | 'finished';
-  result: 'white' | 'black' | 'draw' | null;
+  status: string;
+  result: string | null;
   game_state_json: string | null;
   white_time_remaining: number;
   black_time_remaining: number;
