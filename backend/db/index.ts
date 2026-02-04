@@ -1,4 +1,5 @@
 // backend/db/index.ts
+import 'dotenv/config';
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
