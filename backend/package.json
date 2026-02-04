@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch server.ts",
     "start": "node dist/server.js",
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').cpSync('db','dist/db',{recursive:true})\"",
     "db:init": "tsx scripts/init-db.ts"
   },
   "dependencies": {

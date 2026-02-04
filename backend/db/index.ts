@@ -1,11 +1,17 @@
 import Database from 'better-sqlite3';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, existsSync } from 'fs';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DB_PATH = process.env.DATABASE_PATH || join(__dirname, 'chesscrypto.db');
+const DB_PATH = process.env.DATABASE_PATH || process.env.DATABASE_URL || join(__dirname, 'chesscrypto.db');
+
+function getSchemaPath(): string {
+  const distPath = join(__dirname, 'schema.sql');
+  if (existsSync(distPath)) return distPath;
+  return resolve(process.cwd(), 'db', 'schema.sql');
+}
 
 let db: Database.Database | null = null;
 
@@ -14,7 +20,7 @@ export function getDb(): Database.Database {
     db = new Database(DB_PATH);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
-    const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
+    const schema = readFileSync(getSchemaPath(), 'utf-8');
     db.exec(schema);
     applyMigrations(db);
   }
