@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { Navigate, useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Header } from '@/components/layout/Header';
 import { GameRoom } from '@/components/chess/GameRoom';
@@ -47,17 +47,15 @@ export default function Game() {
   const wsRef = useRef<WebSocket | null>(null);
   const [sessionKey, setSessionKey] = useState(0);
 
+  const isValidMode = !!mode && !!GAME_MODES[mode as GameMode];
+  if (!user || !token) {
+    return <Navigate to="/login" replace />;
+  }
+  if (!isValidMode) {
+    return <Navigate to="/lobby" replace />;
+  }
+
   useEffect(() => {
-    if (!user || !token || !mode || !GAME_MODES[mode as GameMode]) {
-      if (!user) {
-        toast.error('Please login to play');
-        navigate('/login');
-      } else if (!mode || !GAME_MODES[mode as GameMode]) {
-        toast.error('Invalid game mode');
-        navigate('/lobby');
-      }
-      return;
-    }
     const config = GAME_MODES[mode as GameMode];
     if (user.walletBalance < config.entryFee) {
       toast.error('Insufficient balance');
@@ -199,13 +197,7 @@ export default function Game() {
     setMatchmakingMessage('Matchmaking cancelled');
   };
 
-  if (!user || !mode) return null;
-
   const config = GAME_MODES[mode as GameMode];
-  if (!config) {
-    navigate('/lobby');
-    return null;
-  }
 
   if (status === 'connecting' || status === 'matchmaking') {
     return (
