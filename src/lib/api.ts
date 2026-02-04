@@ -2,7 +2,10 @@ type ViteEnv = {
   VITE_API_URL?: string;
   VITE_API_BASE_URL?: string;
   VITE_WS_URL?: string;
+codex/specify-database-info-needed-for-updates-p6kgi4
   PROD?: boolean;
+=======
+main
 };
 
 /**
@@ -10,12 +13,16 @@ type ViteEnv = {
  * or VITE_API_URL / VITE_API_BASE_URL in production.
  */
 const env = (import.meta as unknown as { env?: ViteEnv }).env;
+codex/specify-database-info-needed-for-updates-p6kgi4
 const DEFAULT_API_BASE = 'https://chessarena-backend.up.railway.app';
 const DEFAULT_WS_BASE = 'wss://chessarena-backend.up.railway.app/ws';
 const API_BASE =
   env?.VITE_API_URL ??
   env?.VITE_API_BASE_URL ??
   (env?.PROD ? DEFAULT_API_BASE : '');
+=======
+const API_BASE = env?.VITE_API_URL ?? env?.VITE_API_BASE_URL ?? '';
+main
 
 export function getApiUrl(path: string): string {
   return `${API_BASE}${path.startsWith('/') ? path : '/' + path}`;
