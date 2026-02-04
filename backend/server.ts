@@ -4,6 +4,7 @@ import cors from 'cors';
 import { config } from './config.js';
 import { getDb } from './db/index.js';
 import authRoutes from './routes/auth.js';
+import publicAuthRoutes from './routes/publicAuth.js';
 import walletRoutes from './routes/wallet.js';
 import adminRoutes from './routes/admin.js';
 import gamesRoutes from './routes/games.js';
@@ -19,6 +20,7 @@ app.use(express.json());
 getDb();
 
 app.use('/api/auth', authRoutes);
+app.use('/', publicAuthRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/games', gamesRoutes);
