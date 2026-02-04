@@ -1,3 +1,4 @@
+import 'dotenv/config'; // loads .env automatically
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
@@ -5,10 +6,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DATABASE_URL =
-  process.env.DATABASE_URL ||
-  process.env.DATABASE_PATH ||
-  '';
+const DATABASE_URL = `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`;
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
