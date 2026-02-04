@@ -56,7 +56,7 @@ router.post('/deposit', requireAuth, (req: AuthRequest, res: Response) => {
     return res.status(403).json({ error: 'Account frozen' });
   }
   const { cryptoType, amountUsd } = req.body as { cryptoType?: string; amountUsd?: number };
-  const crypto = ['btc', 'eth', 'usdt'].includes(cryptoType) ? cryptoType : null;
+  const crypto = typeof cryptoType === 'string' && ['btc', 'eth', 'usdt'].includes(cryptoType) ? cryptoType : null;
   const amount = typeof amountUsd === 'number' && amountUsd > 0 ? amountUsd : parseFloat(String(amountUsd));
   if (!crypto || !Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ error: 'Valid cryptoType (btc|eth|usdt) and positive amountUsd required' });
@@ -94,7 +94,7 @@ router.post('/withdraw', requireAuth, (req: AuthRequest, res: Response) => {
     return res.status(403).json({ error: 'Account frozen' });
   }
   const { amount, cryptoType, address } = req.body as { amount?: number; cryptoType?: string; address?: string };
-  const crypto = ['btc', 'eth', 'usdt'].includes(cryptoType) ? cryptoType : 'usdt';
+  const crypto = typeof cryptoType === 'string' && ['btc', 'eth', 'usdt'].includes(cryptoType) ? cryptoType : 'usdt';
   const amt = typeof amount === 'number' ? amount : parseFloat(String(amount));
   const destAddress = typeof address === 'string' ? address.trim() : '';
 

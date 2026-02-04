@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import jwt, { type SignOptions } from 'jsonwebtoken';
 import { getDb } from '../db/index.js';
 import { config } from '../config.js';
 import { requireAuth, type AuthRequest, type JwtPayload } from '../middleware/auth.js';
@@ -59,7 +59,7 @@ router.post('/register', (req, res: Response) => {
 
   const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow;
   const payload: JwtPayload = { userId: row.id, username: row.username, role: row.role as 'admin' | 'player' };
-  const token = jwt.sign(payload, config.jwtSecret, { expiresIn: config.jwtExpiresIn });
+  const token = jwt.sign(payload, config.jwtSecret, { expiresIn: config.jwtExpiresIn as SignOptions['expiresIn'] });
 
   res.status(201).json({
     user: userRowToPlayer(row),
@@ -88,7 +88,7 @@ router.post('/login', (req, res: Response) => {
   }
 
   const payload: JwtPayload = { userId: row.id, username: row.username, role: row.role as 'admin' | 'player' };
-  const token = jwt.sign(payload, config.jwtSecret, { expiresIn: config.jwtExpiresIn });
+  const token = jwt.sign(payload, config.jwtSecret, { expiresIn: config.jwtExpiresIn as SignOptions['expiresIn'] });
 
   res.json({
     user: userRowToPlayer(row),

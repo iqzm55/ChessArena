@@ -72,9 +72,10 @@ function parseToken(url: string): JwtPayload | null {
   }
 }
 
-function send(ws: WebSocket | null, type: string, payload: unknown) {
+function send(ws: WebSocket | null, type: string, payload?: unknown) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ type, ...payload }));
+  const safePayload = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  ws.send(JSON.stringify({ type, ...safePayload }));
 }
 
 function broadcast(session: GameSession, type: string, payload: unknown) {
@@ -105,10 +106,12 @@ function endGame(session: GameSession, result: 'white' | 'black' | 'draw', reaso
   const now = new Date().toISOString();
   const entryFee = session.entryFee;
   const pot = roundMoney(entryFee * 2);
-  const platformFee = result === 'draw' ? 0 : roundMoney(pot * config.platformFeeRate);
-  const winnerPayout = result === 'draw' ? entryFee : roundMoney(pot - platformFee);
-  const whitePayout = result === 'white' ? winnerPayout : result === 'draw' ? entryFee : 0;
-  const blackPayout = result === 'black' ? winnerPayout : result === 'draw' ? entryFee : 0;
+  // Payout rules (updated): win = entry + 50% of opponent entry; draw = entry - $1; loss = 0
+  const winnerPayout = roundMoney(entryFee + entryFee * 0.5);
+  const drawPayout = Math.max(0, roundMoney(entryFee - 1));
+  const whitePayout = result === 'white' ? winnerPayout : result === 'draw' ? drawPayout : 0;
+  const blackPayout = result === 'black' ? winnerPayout : result === 'draw' ? drawPayout : 0;
+  const platformFee = 0;
 
   const applyEnd = db.transaction(() => {
     db.prepare(`

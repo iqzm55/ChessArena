@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { GameMode, GAME_MODES, PLATFORM_FEE_RATE } from '@/lib/chess/types';
+import { GameMode, GAME_MODES } from '@/lib/chess/types';
 import { Clock, Zap, Timer } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -36,8 +36,7 @@ function GameModeCard({ mode, onJoin }: GameModeCardProps) {
   
   const canAfford = user && user.walletBalance >= config.entryFee;
   
-  const platformFee = config.entryFee * 2 * PLATFORM_FEE_RATE;
-  const netWin = config.entryFee - platformFee;
+  const netWin = config.entryFee * 0.5;
   return (
     <Card className="hover:border-primary/50 transition-colors">
       <CardHeader className="text-center">
@@ -52,7 +51,7 @@ function GameModeCard({ mode, onJoin }: GameModeCardProps) {
         </div>
         <div className="text-center text-sm text-muted-foreground">
           <p>Win: +${netWin.toFixed(2)} net</p>
-          <p>Draw: +$0.00</p>
+          <p>Draw: -$1.00</p>
         </div>
         <Button 
           className="w-full" 
