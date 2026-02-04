@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt, { type SignOptions } from 'jsonwebtoken';
-import { getDb } from '../db/index.js';
+import { getOne, run, withTransaction } from '../db/index.js';
 import { config } from '../config.js';
 import { requireAuth, type AuthRequest, type JwtPayload } from '../middleware/auth.js';
 import type { UserRow } from '../db/index.js';
@@ -27,7 +27,7 @@ function userRowToPlayer(row: UserRow): Record<string, unknown> {
 }
 
 /** POST /api/auth/register */
-router.post('/register', (req, res: Response) => {
+router.post('/register', async (req, res: Response) => {
   const { username, password } = req.body as { username?: string; password?: string };
   if (!username || typeof username !== 'string' || !password || typeof password !== 'string') {
     res.status(400).json({ error: 'Username and password required' });
@@ -43,8 +43,7 @@ router.post('/register', (req, res: Response) => {
     return;
   }
 
-  const db = getDb();
-  const existing = db.prepare('SELECT 1 FROM users WHERE username = ?').get(trimmed);
+  const existing = await getOne('SELECT 1 FROM users WHERE username = $1', [trimmed]);
   if (existing) {
     res.status(409).json({ error: 'Username already taken' });
     return;
@@ -52,12 +51,16 @@ router.post('/register', (req, res: Response) => {
 
   const id = 'player-' + Date.now();
   const password_hash = bcrypt.hashSync(password, 10);
-  db.prepare(`
-    INSERT INTO users (id, username, password_hash, role)
-    VALUES (?, ?, ?, 'player')
-  `).run(id, trimmed, password_hash);
+  await run(`
+    INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
+    VALUES ($1, $2, $3, 'player', NOW(), NOW())
+  `, [id, trimmed, password_hash]);
 
-  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow;
+  const row = await getOne<UserRow>('SELECT * FROM users WHERE id = $1', [id]);
+  if (!row) {
+    res.status(500).json({ error: 'Failed to create user' });
+    return;
+  }
   const payload: JwtPayload = { userId: row.id, username: row.username, role: row.role as 'admin' | 'player' };
   const token = jwt.sign(payload, config.jwtSecret, { expiresIn: config.jwtExpiresIn as SignOptions['expiresIn'] });
 
@@ -69,15 +72,14 @@ router.post('/register', (req, res: Response) => {
 });
 
 /** POST /api/auth/login */
-router.post('/login', (req, res: Response) => {
+router.post('/login', async (req, res: Response) => {
   const { username, password } = req.body as { username?: string; password?: string };
   if (!username || typeof username !== 'string' || !password || typeof password !== 'string') {
     res.status(400).json({ error: 'Username and password required' });
     return;
   }
 
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM users WHERE username = ?').get(username.trim().toLowerCase()) as UserRow | undefined;
+  const row = await getOne<UserRow>('SELECT * FROM users WHERE username = $1', [username.trim().toLowerCase()]);
   if (!row || !bcrypt.compareSync(password, row.password_hash)) {
     res.status(401).json({ error: 'Invalid username or password' });
     return;

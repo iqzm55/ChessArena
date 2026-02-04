@@ -1,0 +1,4 @@
+- [x] Rewrite middleware/auth.ts to use PostgreSQL async functions
+- [x] Rewrite routes/auth.ts to use PostgreSQL async functions
+- [x] Rewrite websocket.ts to use PostgreSQL async functions and transactions
+- [x] Test build to ensure no errors

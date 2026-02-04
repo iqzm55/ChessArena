@@ -1,17 +1,16 @@
 import { Router, Response } from 'express';
-import { getDb } from '../db/index.js';
+import { getAll } from '../db/index.js';
 
 const router = Router();
 
-router.get('/', (_req, res: Response) => {
-  const db = getDb();
-  const rows = db.prepare(`
+router.get('/', async (_req, res: Response) => {
+  const rows = await getAll<{ id: string; username: string; display_name: string | null; avatar_url: string | null; games_won: number; total_earnings: number; games_played: number }>(`
     SELECT id, username, display_name, avatar_url, games_won, total_earnings, games_played
     FROM users
-    WHERE role = 'player' AND is_banned = 0
+    WHERE role = 'player' AND is_banned = FALSE
     ORDER BY games_won DESC, total_earnings DESC
     LIMIT 100
-  `).all() as { id: string; username: string; display_name: string | null; avatar_url: string | null; games_won: number; total_earnings: number; games_played: number }[];
+  `);
 
   res.json({
     leaderboard: rows.map((r) => ({

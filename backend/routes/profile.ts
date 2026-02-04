@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDb } from '../db/index.js';
+import { getAll, getOne, query } from '../db/index.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import type { GameRow } from '../db/index.js';
 
@@ -26,7 +26,7 @@ router.get('/', (req: AuthRequest, res: Response) => {
   });
 });
 
-router.put('/', (req: AuthRequest, res: Response) => {
+router.put('/', async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   const { displayName, avatarDataUrl } = req.body as { displayName?: string; avatarDataUrl?: string | null };
   const name = typeof displayName === 'string' ? displayName.trim() : null;
@@ -43,12 +43,13 @@ router.put('/', (req: AuthRequest, res: Response) => {
     }
     avatar = avatarDataUrl;
   }
-  const db = getDb();
-  db.prepare(
-    "UPDATE users SET display_name = COALESCE(?, display_name), avatar_url = COALESCE(?, avatar_url), updated_at = datetime('now') WHERE id = ?"
-  ).run(name, avatar, req.user.id);
+  await query(
+    'UPDATE users SET display_name = COALESCE($1, display_name), avatar_url = COALESCE($2, avatar_url), updated_at = NOW() WHERE id = $3',
+    [name, avatar, req.user.id]
+  );
 
-  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id) as typeof req.user;
+  const row = await getOne<typeof req.user>('SELECT * FROM users WHERE id = $1', [req.user.id]);
+  if (!row) return res.status(404).json({ error: 'User not found' });
   res.json({
     profile: {
       id: row.id,
@@ -66,26 +67,25 @@ router.put('/', (req: AuthRequest, res: Response) => {
   });
 });
 
-router.get('/history', (req: AuthRequest, res: Response) => {
+router.get('/history', async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT g.*, w.username as white_username, w.display_name as white_display, w.avatar_url as white_avatar,
-           b.username as black_username, b.display_name as black_display, b.avatar_url as black_avatar
-    FROM games g
-    LEFT JOIN users w ON w.id = g.white_user_id
-    LEFT JOIN users b ON b.id = g.black_user_id
-    WHERE g.white_user_id = ? OR g.black_user_id = ?
-    ORDER BY g.ended_at DESC, g.created_at DESC
-    LIMIT 50
-  `).all(req.user.id, req.user.id) as (GameRow & {
+  const rows = await getAll<(GameRow & {
     white_username: string | null;
     white_display: string | null;
     white_avatar: string | null;
     black_username: string | null;
     black_display: string | null;
     black_avatar: string | null;
-  })[];
+  })>(`
+    SELECT g.*, w.username as white_username, w.display_name as white_display, w.avatar_url as white_avatar,
+           b.username as black_username, b.display_name as black_display, b.avatar_url as black_avatar
+    FROM games g
+    LEFT JOIN users w ON w.id = g.white_user_id
+    LEFT JOIN users b ON b.id = g.black_user_id
+    WHERE g.white_user_id = $1 OR g.black_user_id = $1
+    ORDER BY g.ended_at DESC, g.created_at DESC
+    LIMIT 50
+  `, [req.user.id]);
 
   const history = rows.map((g) => {
     const isWhite = g.white_user_id === req.user!.id;

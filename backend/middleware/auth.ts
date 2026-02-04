@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
-import { getDb } from '../db/index.js';
+import { getOne } from '../db/index.js';
 import type { UserRow } from '../db/index.js';
 
 export interface JwtPayload {
@@ -22,7 +22,7 @@ function getToken(req: Request): string | null {
 }
 
 /** Attach user to request if valid JWT; do not 401. */
-export function optionalAuth(req: AuthRequest, _res: Response, next: NextFunction): void {
+export async function optionalAuth(req: AuthRequest, _res: Response, next: NextFunction): Promise<void> {
   const token = getToken(req);
   if (!token) {
     next();
@@ -30,8 +30,7 @@ export function optionalAuth(req: AuthRequest, _res: Response, next: NextFunctio
   }
   try {
     const payload = jwt.verify(token, config.jwtSecret) as JwtPayload;
-    const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.userId) as UserRow | undefined;
+    const user = await getOne<UserRow>('SELECT * FROM users WHERE id = $1', [payload.userId]);
     if (user && !user.is_banned) {
       req.user = user;
       req.jwt = payload;
@@ -43,7 +42,7 @@ export function optionalAuth(req: AuthRequest, _res: Response, next: NextFunctio
 }
 
 /** Require valid JWT and attach user; 401 if missing/invalid. */
-export function requireAuth(req: AuthRequest, res: Response, next: NextFunction): void {
+export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   const token = getToken(req);
   if (!token) {
     res.status(401).json({ error: 'Authentication required' });
@@ -51,8 +50,7 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
   }
   try {
     const payload = jwt.verify(token, config.jwtSecret) as JwtPayload;
-    const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.userId) as UserRow | undefined;
+    const user = await getOne<UserRow>('SELECT * FROM users WHERE id = $1', [payload.userId]);
     if (!user) {
       res.status(401).json({ error: 'User not found' });
       return;

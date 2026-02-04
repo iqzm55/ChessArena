@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { randomUUID } from 'crypto';
-import { getDb } from '../db/index.js';
+import { getAll, getOne, query } from '../db/index.js';
 import { config } from '../config.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import type { TransactionRow } from '../db/index.js';
@@ -15,27 +15,24 @@ router.get('/balance', requireAuth, (req: AuthRequest, res: Response) => {
 });
 
 /** GET /api/wallet/deposit-addresses - public deposit addresses for BTC/ETH/USDT */
-router.get('/deposit-addresses', requireAuth, (_req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const row = db.prepare('SELECT btc_address, eth_address, usdt_address FROM app_wallet WHERE id = 1').get() as {
-    btc_address: string | null;
-    eth_address: string | null;
-    usdt_address: string | null;
-  };
+router.get('/deposit-addresses', requireAuth, async (_req: AuthRequest, res: Response) => {
+  const row = await getOne<{ btc_address: string | null; eth_address: string | null; usdt_address: string | null }>(
+    'SELECT btc_address, eth_address, usdt_address FROM app_wallet WHERE id = 1'
+  );
+  const data = row ?? { btc_address: null, eth_address: null, usdt_address: null };
   res.json({
-    btc: row?.btc_address ?? '',
-    eth: row?.eth_address ?? '',
-    usdt: row?.usdt_address ?? '',
+    btc: data.btc_address ?? '',
+    eth: data.eth_address ?? '',
+    usdt: data.usdt_address ?? '',
   });
 });
 
 /** GET /api/wallet/transactions */
-router.get('/transactions', requireAuth, (req: AuthRequest, res: Response) => {
+router.get('/transactions', requireAuth, async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 100
-  `).all(req.user.id) as TransactionRow[];
+  const rows = await getAll<TransactionRow>(`
+    SELECT * FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100
+  `, [req.user.id]);
   const list = rows.map((r) => ({
     id: r.id,
     type: r.type,
@@ -50,7 +47,7 @@ router.get('/transactions', requireAuth, (req: AuthRequest, res: Response) => {
 });
 
 /** POST /api/wallet/deposit - submit manual deposit (user says "I've sent the payment") */
-router.post('/deposit', requireAuth, (req: AuthRequest, res: Response) => {
+router.post('/deposit', requireAuth, async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   if (req.user.is_frozen) {
     return res.status(403).json({ error: 'Account frozen' });
@@ -62,21 +59,23 @@ router.post('/deposit', requireAuth, (req: AuthRequest, res: Response) => {
     return res.status(400).json({ error: 'Valid cryptoType (btc|eth|usdt) and positive amountUsd required' });
   }
 
-  const db = getDb();
-  const wallet = db.prepare('SELECT * FROM app_wallet WHERE id = 1').get() as { btc_address: string | null; eth_address: string | null; usdt_address: string | null };
-  const address = wallet.btc_address && crypto === 'btc' ? wallet.btc_address
-    : wallet.eth_address && crypto === 'eth' ? wallet.eth_address
-    : wallet.usdt_address && crypto === 'usdt' ? wallet.usdt_address
+  const wallet = await getOne<{ btc_address: string | null; eth_address: string | null; usdt_address: string | null }>(
+    'SELECT * FROM app_wallet WHERE id = 1'
+  );
+  const w = wallet ?? { btc_address: null, eth_address: null, usdt_address: null };
+  const address = w.btc_address && crypto === 'btc' ? w.btc_address
+    : w.eth_address && crypto === 'eth' ? w.eth_address
+    : w.usdt_address && crypto === 'usdt' ? w.usdt_address
     : null;
   if (!address) {
     return res.status(503).json({ error: 'Deposit address not configured for this crypto' });
   }
 
   const id = randomUUID();
-  db.prepare(`
+  await query(`
     INSERT INTO transactions (id, user_id, type, amount, crypto_type, status)
-    VALUES (?, ?, 'deposit', ?, ?, 'pending')
-  `).run(id, req.user.id, amount, crypto);
+    VALUES ($1, $2, 'deposit', $3, $4, 'pending')
+  `, [id, req.user.id, amount, crypto]);
 
   res.status(201).json({
     depositId: id,
@@ -88,7 +87,7 @@ router.post('/deposit', requireAuth, (req: AuthRequest, res: Response) => {
 });
 
 /** POST /api/wallet/withdraw - request withdrawal (admin approves later) */
-router.post('/withdraw', requireAuth, (req: AuthRequest, res: Response) => {
+router.post('/withdraw', requireAuth, async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   if (req.user.is_frozen) {
     return res.status(403).json({ error: 'Account frozen' });
@@ -113,11 +112,10 @@ router.post('/withdraw', requireAuth, (req: AuthRequest, res: Response) => {
   }
 
   const id = randomUUID();
-  const db = getDb();
-  db.prepare(`
+  await query(`
     INSERT INTO transactions (id, user_id, type, amount, crypto_type, crypto_address, status)
-    VALUES (?, ?, 'withdrawal', ?, ?, ?, 'pending')
-  `).run(id, req.user.id, -amt, crypto, destAddress);
+    VALUES ($1, $2, 'withdrawal', $3, $4, $5, 'pending')
+  `, [id, req.user.id, -amt, crypto, destAddress]);
 
   res.status(201).json({
     withdrawalId: id,

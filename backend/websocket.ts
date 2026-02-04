@@ -2,7 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { IncomingMessage } from 'http';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
-import { getDb } from './db/index.js';
+import { getOne, run, withTransaction } from './db/index.js';
 import { config, GAME_MODES, type GameMode } from './config.js';
 import { createInitialGameState, makeMove, getLegalMoves } from './lib/chess/engine.js';
 import type { GameState, Move } from './lib/chess/types.js';
@@ -94,7 +94,7 @@ function currentTurnPayload(session: GameSession) {
   };
 }
 
-function endGame(session: GameSession, result: 'white' | 'black' | 'draw', reason: string) {
+async function endGame(session: GameSession, result: 'white' | 'black' | 'draw', reason: string) {
   if (session.status === 'finished') return;
   session.status = 'finished';
   session.result = result;
@@ -102,7 +102,6 @@ function endGame(session: GameSession, result: 'white' | 'black' | 'draw', reaso
     clearInterval(session.timerInterval);
     session.timerInterval = undefined;
   }
-  const db = getDb();
   const now = new Date().toISOString();
   const entryFee = session.entryFee;
   const pot = roundMoney(entryFee * 2);
@@ -113,70 +112,68 @@ function endGame(session: GameSession, result: 'white' | 'black' | 'draw', reaso
   const blackPayout = result === 'black' ? winnerPayout : result === 'draw' ? drawPayout : 0;
   const platformFee = 0;
 
-  const applyEnd = db.transaction(() => {
-    db.prepare(`
+  await withTransaction(async (client) => {
+    await run(`
       UPDATE games
       SET status = 'finished',
-          result = ?,
-          ended_at = ?,
-          game_state_json = ?,
-          white_payout = ?,
-          black_payout = ?,
-          platform_fee = ?
-      WHERE id = ?
-    `).run(result, now, JSON.stringify(session.gameState), whitePayout, blackPayout, platformFee, session.id);
+          result = $1,
+          ended_at = $2,
+          game_state_json = $3,
+          white_payout = $4,
+          black_payout = $5,
+          platform_fee = $6
+      WHERE id = $7
+    `, [result, now, JSON.stringify(session.gameState), whitePayout, blackPayout, platformFee, session.id], client);
 
-    db.prepare(`
+    await run(`
       UPDATE game_escrow
-      SET status = ?, released_at = ?
-      WHERE game_id = ?
-    `).run(result === 'draw' ? 'refunded' : 'released', now, session.id);
+      SET status = $1, released_at = $2
+      WHERE game_id = $3
+    `, [result === 'draw' ? 'refunded' : 'released', now, session.id], client);
 
-    db.prepare('UPDATE users SET games_played = games_played + 1, updated_at = datetime(\'now\') WHERE id IN (?, ?)').run(session.whiteUserId, session.blackUserId);
+    await run('UPDATE users SET games_played = games_played + 1, updated_at = NOW() WHERE id IN ($1, $2)', [session.whiteUserId, session.blackUserId], client);
     if (result === 'white') {
-      db.prepare('UPDATE users SET games_won = games_won + 1 WHERE id = ?').run(session.whiteUserId);
-      db.prepare('UPDATE users SET games_lost = games_lost + 1 WHERE id = ?').run(session.blackUserId);
+      await run('UPDATE users SET games_won = games_won + 1 WHERE id = $1', [session.whiteUserId], client);
+      await run('UPDATE users SET games_lost = games_lost + 1 WHERE id = $1', [session.blackUserId], client);
     } else if (result === 'black') {
-      db.prepare('UPDATE users SET games_won = games_won + 1 WHERE id = ?').run(session.blackUserId);
-      db.prepare('UPDATE users SET games_lost = games_lost + 1 WHERE id = ?').run(session.whiteUserId);
+      await run('UPDATE users SET games_won = games_won + 1 WHERE id = $1', [session.blackUserId], client);
+      await run('UPDATE users SET games_lost = games_lost + 1 WHERE id = $1', [session.whiteUserId], client);
     } else {
-      db.prepare('UPDATE users SET games_draw = games_draw + 1 WHERE id = ?').run(session.whiteUserId);
-      db.prepare('UPDATE users SET games_draw = games_draw + 1 WHERE id = ?').run(session.blackUserId);
+      await run('UPDATE users SET games_draw = games_draw + 1 WHERE id = $1', [session.whiteUserId], client);
+      await run('UPDATE users SET games_draw = games_draw + 1 WHERE id = $1', [session.blackUserId], client);
     }
 
     if (whitePayout > 0) {
-      db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?').run(whitePayout, session.whiteUserId);
+      await run('UPDATE users SET wallet_balance = wallet_balance + $1 WHERE id = $2', [whitePayout, session.whiteUserId], client);
     }
     if (blackPayout > 0) {
-      db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?').run(blackPayout, session.blackUserId);
+      await run('UPDATE users SET wallet_balance = wallet_balance + $1 WHERE id = $2', [blackPayout, session.blackUserId], client);
     }
 
     if (platformFee > 0) {
-      db.prepare('UPDATE app_wallet SET balance = balance + ?, updated_at = datetime(\'now\') WHERE id = 1').run(platformFee);
+      await run('UPDATE app_wallet SET balance = balance + $1, updated_at = NOW() WHERE id = 1', [platformFee], client);
     }
 
     const txIdW = randomUUID();
     const txIdB = randomUUID();
-    db.prepare(`
+    await run(`
       INSERT INTO transactions (id, user_id, type, amount, status, created_at, processed_at)
-      VALUES (?, ?, ?, ?, 'completed', ?, ?)
-    `).run(txIdW, session.whiteUserId, result === 'draw' ? 'game_draw' : result === 'white' ? 'game_win' : 'game_loss', whitePayout, now, now);
-    db.prepare(`
+      VALUES ($1, $2, $3, $4, 'completed', $5, $6)
+    `, [txIdW, session.whiteUserId, result === 'draw' ? 'game_draw' : result === 'white' ? 'game_win' : 'game_loss', whitePayout, now, now], client);
+    await run(`
       INSERT INTO transactions (id, user_id, type, amount, status, created_at, processed_at)
-      VALUES (?, ?, ?, ?, 'completed', ?, ?)
-    `).run(txIdB, session.blackUserId, result === 'draw' ? 'game_draw' : result === 'black' ? 'game_win' : 'game_loss', blackPayout, now, now);
+      VALUES ($1, $2, $3, $4, 'completed', $5, $6)
+    `, [txIdB, session.blackUserId, result === 'draw' ? 'game_draw' : result === 'black' ? 'game_win' : 'game_loss', blackPayout, now, now], client);
 
     const whiteEarnings = Math.max(0, whitePayout - entryFee);
     const blackEarnings = Math.max(0, blackPayout - entryFee);
     if (whiteEarnings > 0) {
-      db.prepare('UPDATE users SET total_earnings = total_earnings + ? WHERE id = ?').run(whiteEarnings, session.whiteUserId);
+      await run('UPDATE users SET total_earnings = total_earnings + $1 WHERE id = $2', [whiteEarnings, session.whiteUserId], client);
     }
     if (blackEarnings > 0) {
-      db.prepare('UPDATE users SET total_earnings = total_earnings + ? WHERE id = ?').run(blackEarnings, session.blackUserId);
+      await run('UPDATE users SET total_earnings = total_earnings + $1 WHERE id = $2', [blackEarnings, session.blackUserId], client);
     }
   });
-
-  applyEnd();
 
   const whiteDelta = roundMoney(whitePayout - entryFee);
   const blackDelta = roundMoney(blackPayout - entryFee);
@@ -241,56 +238,54 @@ function tickTimer(session: GameSession) {
   });
 }
 
-function tryMatch(session: GameSession) {
-  const db = getDb();
+async function tryMatch(session: GameSession) {
   const gameId = randomUUID();
   const now = new Date().toISOString();
   const cfg = GAME_MODES[session.mode];
-  const startMatch = db.transaction(() => {
-    const white = db.prepare('SELECT wallet_balance FROM users WHERE id = ?').get(session.whiteUserId) as { wallet_balance: number } | undefined;
-    const black = db.prepare('SELECT wallet_balance FROM users WHERE id = ?').get(session.blackUserId) as { wallet_balance: number } | undefined;
-    if (!white || !black || white.wallet_balance < cfg.entryFee || black.wallet_balance < cfg.entryFee) {
-      throw new Error('Insufficient balance');
-    }
-
-    db.prepare('UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?').run(cfg.entryFee, session.whiteUserId);
-    db.prepare('UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?').run(cfg.entryFee, session.blackUserId);
-
-    const txIdW = randomUUID();
-    const txIdB = randomUUID();
-    db.prepare(`
-      INSERT INTO transactions (id, user_id, type, amount, status, created_at, processed_at)
-      VALUES (?, ?, 'game_entry', ?, 'completed', ?, ?)
-    `).run(txIdW, session.whiteUserId, -cfg.entryFee, now, now);
-    db.prepare(`
-      INSERT INTO transactions (id, user_id, type, amount, status, created_at, processed_at)
-      VALUES (?, ?, 'game_entry', ?, 'completed', ?, ?)
-    `).run(txIdB, session.blackUserId, -cfg.entryFee, now, now);
-
-    db.prepare(`
-      INSERT INTO games (id, mode, white_user_id, black_user_id, status, game_state_json, white_time_remaining, black_time_remaining, entry_fee, started_at, created_at)
-      VALUES (?, ?, ?, ?, 'playing', ?, ?, ?, ?, ?, ?)
-    `).run(
-      gameId,
-      session.mode,
-      session.whiteUserId,
-      session.blackUserId,
-      JSON.stringify(session.gameState),
-      session.whiteTimeRemaining,
-      session.blackTimeRemaining,
-      session.entryFee,
-      now,
-      now
-    );
-
-    db.prepare(`
-      INSERT INTO game_escrow (game_id, white_user_id, black_user_id, entry_fee, total_amount, status, created_at)
-      VALUES (?, ?, ?, ?, ?, 'held', ?)
-    `).run(gameId, session.whiteUserId, session.blackUserId, cfg.entryFee, roundMoney(cfg.entryFee * 2), now);
-  });
 
   try {
-    startMatch();
+    await withTransaction(async (client) => {
+      const white = await getOne<{ wallet_balance: number }>('SELECT wallet_balance FROM users WHERE id = $1', [session.whiteUserId], client);
+      const black = await getOne<{ wallet_balance: number }>('SELECT wallet_balance FROM users WHERE id = $1', [session.blackUserId], client);
+      if (!white || !black || white.wallet_balance < cfg.entryFee || black.wallet_balance < cfg.entryFee) {
+        throw new Error('Insufficient balance');
+      }
+
+      await run('UPDATE users SET wallet_balance = wallet_balance - $1 WHERE id = $2', [cfg.entryFee, session.whiteUserId], client);
+      await run('UPDATE users SET wallet_balance = wallet_balance - $1 WHERE id = $2', [cfg.entryFee, session.blackUserId], client);
+
+      const txIdW = randomUUID();
+      const txIdB = randomUUID();
+      await run(`
+        INSERT INTO transactions (id, user_id, type, amount, status, created_at, processed_at)
+        VALUES ($1, $2, 'game_entry', $3, 'completed', $4, $5)
+      `, [txIdW, session.whiteUserId, -cfg.entryFee, now, now], client);
+      await run(`
+        INSERT INTO transactions (id, user_id, type, amount, status, created_at, processed_at)
+        VALUES ($1, $2, 'game_entry', $3, 'completed', $4, $5)
+      `, [txIdB, session.blackUserId, -cfg.entryFee, now, now], client);
+
+      await run(`
+        INSERT INTO games (id, mode, white_user_id, black_user_id, status, game_state_json, white_time_remaining, black_time_remaining, entry_fee, started_at, created_at)
+        VALUES ($1, $2, $3, $4, 'playing', $5, $6, $7, $8, $9, $10)
+      `, [
+        gameId,
+        session.mode,
+        session.whiteUserId,
+        session.blackUserId,
+        JSON.stringify(session.gameState),
+        session.whiteTimeRemaining,
+        session.blackTimeRemaining,
+        session.entryFee,
+        now,
+        now
+      ], client);
+
+      await run(`
+        INSERT INTO game_escrow (game_id, white_user_id, black_user_id, entry_fee, total_amount, status, created_at)
+        VALUES ($1, $2, $3, $4, $5, 'held', $6)
+      `, [gameId, session.whiteUserId, session.blackUserId, cfg.entryFee, roundMoney(cfg.entryFee * 2), now], client);
+    });
   } catch (error) {
     send(session.whiteSocket, 'error', { message: error instanceof Error ? error.message : 'Match failed' });
     send(session.blackSocket, 'error', { message: error instanceof Error ? error.message : 'Match failed' });
@@ -339,9 +334,8 @@ function tryMatch(session: GameSession) {
   session.timerInterval = setInterval(() => tickTimer(session), 1000);
 }
 
-function handleJoinGame(ws: WebSocket, userId: string, username: string, mode: GameMode) {
-  const db = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as UserRow | undefined;
+async function handleJoinGame(ws: WebSocket, userId: string, username: string, mode: GameMode) {
+  const user = await getOne<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
   if (!user || user.is_banned || user.is_frozen) {
     send(ws, 'error', { message: 'Account not allowed to play' });
     return;
@@ -375,8 +369,7 @@ function handleJoinGame(ws: WebSocket, userId: string, username: string, mode: G
     matchmakingQueues.set(mode, queue.filter((p) => p.userId !== other.userId && p.userId !== userId));
     if (other.timeoutId) clearTimeout(other.timeoutId);
 
-    const db2 = getDb();
-    const otherUser = db2.prepare('SELECT * FROM users WHERE id = ?').get(other.userId) as UserRow | undefined;
+    const otherUser = await getOne<UserRow>('SELECT * FROM users WHERE id = $1', [other.userId]);
     if (!otherUser || otherUser.is_banned || otherUser.is_frozen || otherUser.wallet_balance < cfg.entryFee) {
       send(other.socket, 'error', { message: 'Match cancelled' });
       send(ws, 'error', { message: 'Match cancelled' });
@@ -422,7 +415,7 @@ function handleJoinGame(ws: WebSocket, userId: string, username: string, mode: G
   }
 }
 
-function handleMove(ws: WebSocket, move: Move) {
+async function handleMove(ws: WebSocket, move: Move) {
   const gameId = socketToGame.get(ws);
   if (!gameId) {
     send(ws, 'error', { message: 'Not in a game' });
@@ -446,31 +439,29 @@ function handleMove(ws: WebSocket, move: Move) {
     (m) => m.from === move.from && m.to === move.to && (m.promotion ?? null) === (move.promotion ?? null) && (m.isCastling ?? null) === (move.isCastling ?? null) && (m.isEnPassant ?? null) === (move.isEnPassant ?? null)
   );
   if (!selectedMove) {
-    const db = getDb();
     const cheaterId = isWhite ? session.whiteUserId : session.blackUserId;
-    db.prepare('UPDATE games SET flagged = 1, flag_reason = ? WHERE id = ?').run('Invalid move (anti-cheat)', gameId);
-    const cheaterRow = db.prepare('SELECT wallet_balance FROM users WHERE id = ?').get(cheaterId) as { wallet_balance: number } | undefined;
+    await run('UPDATE games SET flagged = 1, flag_reason = $1 WHERE id = $2', ['Invalid move (anti-cheat)', gameId]);
+    const cheaterRow = await getOne<{ wallet_balance: number }>('SELECT wallet_balance FROM users WHERE id = $1', [cheaterId]);
     const confiscate = cheaterRow?.wallet_balance ?? 0;
-    db.prepare('UPDATE users SET is_frozen = 1, wallet_balance = 0, updated_at = datetime(\'now\') WHERE id = ?').run(cheaterId);
+    await run('UPDATE users SET is_frozen = 1, wallet_balance = 0, updated_at = NOW() WHERE id = $1', [cheaterId]);
     if (confiscate > 0) {
-      db.prepare('UPDATE app_wallet SET balance = balance + ?, updated_at = datetime(\'now\') WHERE id = 1').run(confiscate);
+      await run('UPDATE app_wallet SET balance = balance + $1, updated_at = NOW() WHERE id = 1', [confiscate]);
     }
     const txId = randomUUID();
-    db.prepare(`
+    await run(`
       INSERT INTO transactions (id, user_id, type, amount, status, created_at, processed_at)
-      VALUES (?, ?, 'cheat_forfeit', ?, 'completed', datetime('now'), datetime('now'))
-    `).run(txId, cheaterId, -confiscate);
+      VALUES ($1, $2, 'cheat_forfeit', $3, 'completed', NOW(), NOW())
+    `, [txId, cheaterId, -confiscate]);
     endGame(session, isWhite ? 'black' : 'white', 'Cheat detected - opponent forfeited');
     return;
   }
   const newState = makeMove(session.gameState, selectedMove);
   session.gameState = newState;
 
-  const db = getDb();
-  db.prepare(`
+  await run(`
     INSERT INTO game_moves (game_id, move_number, from_square, to_square, piece_type, piece_color, captured_type, promotion_type, is_castling, is_en_passant)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+  `, [
     gameId,
     newState.moveHistory.length,
     selectedMove.from,
@@ -481,8 +472,8 @@ function handleMove(ws: WebSocket, move: Move) {
     selectedMove.promotion ?? null,
     selectedMove.isCastling ?? null,
     selectedMove.isEnPassant ? 1 : 0
-  );
-  db.prepare('UPDATE games SET game_state_json = ? WHERE id = ?').run(JSON.stringify(newState), gameId);
+  ]);
+  await run('UPDATE games SET game_state_json = $1 WHERE id = $2', [JSON.stringify(newState), gameId]);
 
   broadcast(session, 'move', { move: selectedMove, gameState: newState, ...currentTurnPayload(session) });
 

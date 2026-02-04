@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { randomUUID } from 'crypto';
-import { getDb } from '../db/index.js';
+import { getAll, getOne, query, run } from '../db/index.js';
 import { config } from '../config.js';
 import { requireAuth, requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import type { UserRow, TransactionRow, AppWalletRow } from '../db/index.js';
@@ -20,64 +20,58 @@ function userRowToPublic(row: UserRow) {
 }
 
 /** GET /api/admin/stats */
-router.get('/stats', (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const wallet = db.prepare('SELECT balance FROM app_wallet WHERE id = 1').get() as { balance: number };
-  const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number };
-  const pendingDeposits = db.prepare("SELECT COUNT(*) as c FROM transactions WHERE type = 'deposit' AND status = 'pending'").get() as { c: number };
-  const flaggedGames = db.prepare('SELECT COUNT(*) as c FROM games WHERE flagged = 1').get() as { c: number };
+router.get('/stats', async (_req: AuthRequest, res: Response) => {
+  const wallet = await getOne<{ balance: number }>('SELECT balance FROM app_wallet WHERE id = 1');
+  const userCount = await getOne<{ c: number }>('SELECT COUNT(*)::int as c FROM users');
+  const pendingDeposits = await getOne<{ c: number }>("SELECT COUNT(*)::int as c FROM transactions WHERE type = 'deposit' AND status = 'pending'");
+  const flaggedGames = await getOne<{ c: number }>('SELECT COUNT(*)::int as c FROM games WHERE flagged = TRUE');
   res.json({
-    appWalletBalance: wallet.balance,
-    totalUsers: userCount.c,
-    pendingDeposits: pendingDeposits.c,
-    flaggedGames: flaggedGames.c,
+    appWalletBalance: wallet?.balance ?? 0,
+    totalUsers: userCount?.c ?? 0,
+    pendingDeposits: pendingDeposits?.c ?? 0,
+    flaggedGames: flaggedGames?.c ?? 0,
   });
 });
 
 /** GET /api/admin/users */
-router.get('/users', (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const rows = db.prepare('SELECT * FROM users WHERE role = ? ORDER BY created_at DESC').all('player') as UserRow[];
+router.get('/users', async (_req: AuthRequest, res: Response) => {
+  const rows = await getAll<UserRow>('SELECT * FROM users WHERE role = $1 ORDER BY created_at DESC', ['player']);
   res.json({ users: rows.map(userRowToPublic) });
 });
 
 /** POST /api/admin/users/:id/freeze */
-router.post('/users/:id/freeze', (req: AuthRequest, res: Response) => {
+router.post('/users/:id/freeze', async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const db = getDb();
-  const r = db.prepare('UPDATE users SET is_frozen = 1, updated_at = datetime(\'now\') WHERE id = ? AND role = ?').run(id, 'player');
-  if (r.changes === 0) return res.status(404).json({ error: 'User not found' });
+  const r = await run('UPDATE users SET is_frozen = TRUE, updated_at = NOW() WHERE id = $1 AND role = $2', [id, 'player']);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'User not found' });
   res.json({ ok: true });
 });
 
 /** POST /api/admin/users/:id/unfreeze */
-router.post('/users/:id/unfreeze', (req: AuthRequest, res: Response) => {
+router.post('/users/:id/unfreeze', async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const db = getDb();
-  const r = db.prepare('UPDATE users SET is_frozen = 0, updated_at = datetime(\'now\') WHERE id = ? AND role = ?').run(id, 'player');
-  if (r.changes === 0) return res.status(404).json({ error: 'User not found' });
+  const r = await run('UPDATE users SET is_frozen = FALSE, updated_at = NOW() WHERE id = $1 AND role = $2', [id, 'player']);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'User not found' });
   res.json({ ok: true });
 });
 
 /** POST /api/admin/users/:id/ban */
-router.post('/users/:id/ban', (req: AuthRequest, res: Response) => {
+router.post('/users/:id/ban', async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const db = getDb();
-  const r = db.prepare('UPDATE users SET is_banned = 1, updated_at = datetime(\'now\') WHERE id = ? AND role = ?').run(id, 'player');
-  if (r.changes === 0) return res.status(404).json({ error: 'User not found' });
+  const r = await run('UPDATE users SET is_banned = TRUE, updated_at = NOW() WHERE id = $1 AND role = $2', [id, 'player']);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'User not found' });
   res.json({ ok: true });
 });
 
 /** GET /api/admin/deposits - pending deposits */
-router.get('/deposits', (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const rows = db.prepare(`
+router.get('/deposits', async (_req: AuthRequest, res: Response) => {
+  const rows = await getAll<(TransactionRow & { username: string })>(`
     SELECT t.*, u.username
     FROM transactions t
     JOIN users u ON u.id = t.user_id
     WHERE t.type = 'deposit' AND t.status = 'pending'
     ORDER BY t.created_at DESC
-  `).all() as (TransactionRow & { username: string })[];
+  `);
   res.json({
     deposits: rows.map((r) => ({
       id: r.id,
@@ -91,36 +85,33 @@ router.get('/deposits', (req: AuthRequest, res: Response) => {
 });
 
 /** POST /api/admin/deposits/:id/approve */
-router.post('/deposits/:id/approve', (req: AuthRequest, res: Response) => {
+router.post('/deposits/:id/approve', async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM transactions WHERE id = ? AND type = ? AND status = ?').get(id, 'deposit', 'pending') as TransactionRow | undefined;
+  const row = await getOne<TransactionRow>('SELECT * FROM transactions WHERE id = $1 AND type = $2 AND status = $3', [id, 'deposit', 'pending']);
   if (!row) return res.status(404).json({ error: 'Deposit not found or already processed' });
   const now = new Date().toISOString();
-  db.prepare('UPDATE transactions SET status = ?, processed_at = ? WHERE id = ?').run('completed', now, id);
-  db.prepare('UPDATE users SET wallet_balance = wallet_balance + ?, updated_at = datetime(\'now\') WHERE id = ?').run(row.amount, row.user_id);
+  await query('UPDATE transactions SET status = $1, processed_at = $2 WHERE id = $3', ['completed', now, id]);
+  await query('UPDATE users SET wallet_balance = wallet_balance + $1, updated_at = NOW() WHERE id = $2', [row.amount, row.user_id]);
   res.json({ ok: true });
 });
 
 /** POST /api/admin/deposits/:id/reject */
-router.post('/deposits/:id/reject', (req: AuthRequest, res: Response) => {
+router.post('/deposits/:id/reject', async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const db = getDb();
-  const r = db.prepare('UPDATE transactions SET status = ?, processed_at = datetime(\'now\') WHERE id = ? AND type = ? AND status = ?').run('rejected', id, 'deposit', 'pending');
-  if (r.changes === 0) return res.status(404).json({ error: 'Deposit not found or already processed' });
+  const r = await run('UPDATE transactions SET status = $1, processed_at = NOW() WHERE id = $2 AND type = $3 AND status = $4', ['rejected', id, 'deposit', 'pending']);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Deposit not found or already processed' });
   res.json({ ok: true });
 });
 
 /** GET /api/admin/withdrawals - pending withdrawals */
-router.get('/withdrawals', (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const rows = db.prepare(`
+router.get('/withdrawals', async (_req: AuthRequest, res: Response) => {
+  const rows = await getAll<(TransactionRow & { username: string })>(`
     SELECT t.*, u.username
     FROM transactions t
     JOIN users u ON u.id = t.user_id
     WHERE t.type = 'withdrawal' AND t.status = 'pending'
     ORDER BY t.created_at DESC
-  `).all() as (TransactionRow & { username: string })[];
+  `);
   res.json({
     withdrawals: rows.map((r) => ({
       id: r.id,
@@ -135,38 +126,35 @@ router.get('/withdrawals', (req: AuthRequest, res: Response) => {
 });
 
 /** POST /api/admin/withdrawals/:id/approve */
-router.post('/withdrawals/:id/approve', (req: AuthRequest, res: Response) => {
+router.post('/withdrawals/:id/approve', async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM transactions WHERE id = ? AND type = ? AND status = ?').get(id, 'withdrawal', 'pending') as TransactionRow | undefined;
+  const row = await getOne<TransactionRow>('SELECT * FROM transactions WHERE id = $1 AND type = $2 AND status = $3', [id, 'withdrawal', 'pending']);
   if (!row) return res.status(404).json({ error: 'Withdrawal not found or already processed' });
   const amount = Math.abs(row.amount);
   const fee = config.withdrawalFee;
   const total = amount + fee;
-  const user = db.prepare('SELECT wallet_balance FROM users WHERE id = ?').get(row.user_id) as { wallet_balance: number };
-  if (user.wallet_balance < total) {
+  const user = await getOne<{ wallet_balance: number }>('SELECT wallet_balance FROM users WHERE id = $1', [row.user_id]);
+  if ((user?.wallet_balance ?? 0) < total) {
     return res.status(400).json({ error: 'User has insufficient balance' });
   }
   const now = new Date().toISOString();
-  db.prepare('UPDATE transactions SET status = ?, processed_at = ? WHERE id = ?').run('completed', now, id);
-  db.prepare('UPDATE users SET wallet_balance = wallet_balance - ?, updated_at = datetime(\'now\') WHERE id = ?').run(total, row.user_id);
-  db.prepare('UPDATE app_wallet SET balance = balance + ?, updated_at = datetime(\'now\') WHERE id = 1').run(fee);
+  await query('UPDATE transactions SET status = $1, processed_at = $2 WHERE id = $3', ['completed', now, id]);
+  await query('UPDATE users SET wallet_balance = wallet_balance - $1, updated_at = NOW() WHERE id = $2', [total, row.user_id]);
+  await query('UPDATE app_wallet SET balance = balance + $1, updated_at = NOW() WHERE id = 1', [fee]);
   res.json({ ok: true });
 });
 
 /** POST /api/admin/withdrawals/:id/reject */
-router.post('/withdrawals/:id/reject', (req: AuthRequest, res: Response) => {
+router.post('/withdrawals/:id/reject', async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const db = getDb();
-  const r = db.prepare('UPDATE transactions SET status = ?, processed_at = datetime(\'now\') WHERE id = ? AND type = ? AND status = ?').run('rejected', id, 'withdrawal', 'pending');
-  if (r.changes === 0) return res.status(404).json({ error: 'Withdrawal not found or already processed' });
+  const r = await run('UPDATE transactions SET status = $1, processed_at = NOW() WHERE id = $2 AND type = $3 AND status = $4', ['rejected', id, 'withdrawal', 'pending']);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Withdrawal not found or already processed' });
   res.json({ ok: true });
 });
 
 /** GET /api/admin/games */
-router.get('/games', (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const rows = db.prepare(`
+router.get('/games', async (_req: AuthRequest, res: Response) => {
+  const rows = await getAll<{ id: string; mode: string; status: string; flagged: boolean; flag_reason: string | null; result: string | null; white: string | null; black: string | null }>(`
     SELECT g.id, g.mode, g.status, g.flagged, g.flag_reason, g.result,
            w.username as white, b.username as black
     FROM games g
@@ -174,7 +162,7 @@ router.get('/games', (req: AuthRequest, res: Response) => {
     LEFT JOIN users b ON b.id = g.black_user_id
     ORDER BY g.created_at DESC
     LIMIT 100
-  `).all() as { id: string; mode: string; status: string; flagged: number; flag_reason: string | null; result: string | null; white: string | null; black: string | null }[];
+  `);
   res.json({
     games: rows.map((r) => ({
       id: r.id,
@@ -190,29 +178,28 @@ router.get('/games', (req: AuthRequest, res: Response) => {
 });
 
 /** GET /api/admin/settings - wallet addresses */
-router.get('/settings', (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM app_wallet WHERE id = 1').get() as AppWalletRow;
+router.get('/settings', async (_req: AuthRequest, res: Response) => {
+  const row = await getOne<AppWalletRow>('SELECT * FROM app_wallet WHERE id = 1');
+  const w = row ?? { btc_address: null, eth_address: null, usdt_address: null } as AppWalletRow;
   res.json({
     walletAddresses: {
-      btc: row.btc_address ?? '',
-      eth: row.eth_address ?? '',
-      usdt: row.usdt_address ?? '',
+      btc: w.btc_address ?? '',
+      eth: w.eth_address ?? '',
+      usdt: w.usdt_address ?? '',
     },
   });
 });
 
 /** PUT /api/admin/settings - update wallet addresses */
-router.put('/settings', (req: AuthRequest, res: Response) => {
+router.put('/settings', async (req: AuthRequest, res: Response) => {
   const { btc, eth, usdt } = req.body?.walletAddresses ?? {};
-  const db = getDb();
-  db.prepare(`
-    UPDATE app_wallet SET btc_address = ?, eth_address = ?, usdt_address = ?, updated_at = datetime('now') WHERE id = 1
-  `).run(
+  await query(`
+    UPDATE app_wallet SET btc_address = $1, eth_address = $2, usdt_address = $3, updated_at = NOW() WHERE id = 1
+  `, [
     typeof btc === 'string' ? btc : null,
     typeof eth === 'string' ? eth : null,
-    typeof usdt === 'string' ? usdt : null
-  );
+    typeof usdt === 'string' ? usdt : null,
+  ]);
   res.json({ ok: true });
 });
 
