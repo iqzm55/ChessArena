@@ -1,27 +1,85 @@
 # Chess Crypto Backend
 
-Node.js + Express backend for the paid multiplayer chess app. SQLite, JWT auth, WebSockets, wallet, admin approval for deposits/withdrawals, server-authoritative chess with anti-cheat.
+Node.js + Express backend for the paid multiplayer chess app. PostgreSQL, JWT auth, WebSockets, wallet, admin approval for deposits/withdrawals, server-authoritative chess with anti-cheat.
 
 ## Setup
 
 ```bash
 cd backend
 npm install
-npm run db:init   # creates DB and default admin (admin / admin123)
+npm run db:init   # creates tables and default admin (admin / admin123)
 npm run dev       # start dev server (tsx watch)
 ```
 
 ## Environment
 
+Create a `.env` from the example:
+
+```bash
+cp .env.example .env
+```
+
+**Windows PowerShell**
+
+```powershell
+Copy-Item .env.example .env
+```
+
+**Required variables**
+
 - `PORT` – server port (default 3001)
 - `JWT_SECRET` – secret for JWT (set in production)
-- `DATABASE_PATH` – path to SQLite file (default: `db/chesscrypto.db`)
+- `DATABASE_URL` – full PostgreSQL connection string **OR** set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+
+Use `.env.production.example` as a template for production deployment (hosted PostgreSQL).
+
+## Windows build & run
+
+```powershell
+cd backend
+npm install
+Copy-Item .env.example .env
+npm run db:init
+npm run build
+npm start
+```
+
+## Project structure (backend)
+
+```
+backend/
+  controllers/
+    authController.ts
+  db/
+    index.ts
+    schema.sql
+  lib/
+    chess/
+  middleware/
+  models/
+    userModel.ts
+  routes/
+    auth.ts
+    publicAuth.ts
+    wallet.ts
+    admin.ts
+    games.ts
+    profile.ts
+    leaderboard.ts
+  scripts/
+    init-db.ts
+  config.ts
+  server.ts
+  websocket.ts
+```
 
 ## API Overview
 
 ### Auth
 - `POST /api/auth/register` – `{ username, password }` → `{ user, token, isAdmin }`
 - `POST /api/auth/login` – `{ username, password }` → `{ user, token, isAdmin }`
+- `POST /signup` – `{ username, password }` → `{ user, token, isAdmin }`
+- `POST /login` – `{ username, password }` → `{ user, token, isAdmin }`
 - `GET /api/auth/me` – Bearer JWT → `{ user, isAdmin }`
 
 ### Wallet (JWT required)
