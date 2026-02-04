@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,7 +42,6 @@ interface TxRow {
 }
 
 export default function Wallet() {
-  const navigate = useNavigate();
   const { user, token, refreshUser } = useAuth();
   const [selectedCrypto, setSelectedCrypto] = useState<CryptoType | null>(null);
   const [depositAmount, setDepositAmount] = useState('');
@@ -76,9 +75,8 @@ export default function Wallet() {
     load();
   }, [user?.id, token]);
 
-  if (!user) {
-    navigate('/login');
-    return null;
+  if (!user || !token) {
+    return <Navigate to="/login" replace />;
   }
 
   const handleDeposit = (crypto: CryptoType) => {

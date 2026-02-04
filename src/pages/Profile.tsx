@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,6 @@ interface HistoryRow {
 }
 
 export default function Profile() {
-  const navigate = useNavigate();
   const { user, token, refreshUser } = useAuth();
   const [displayName, setDisplayName] = useState('');
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -46,10 +45,6 @@ export default function Profile() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!user) {
-      navigate('/login');
-      return;
-    }
     if (!token) return;
     const load = async () => {
       try {
@@ -65,7 +60,7 @@ export default function Profile() {
       }
     };
     load();
-  }, [user?.id, token, navigate]);
+  }, [user?.id, token]);
 
   const handleFileChange = (file: File | null) => {
     if (!file) return;
@@ -106,7 +101,9 @@ export default function Profile() {
     }
   };
 
-  if (!user) return null;
+  if (!user || !token) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -185,7 +182,7 @@ export default function Profile() {
                         {g.outcome.toUpperCase()} vs {g.opponent.displayName || g.opponent.username || 'Unknown'}
                       </div>
                       <div className="text-sm text-muted-foreground">
-                        {g.mode} • {g.endedAt ? new Date(g.endedAt).toLocaleString() : 'In progress'}
+                        {g.mode} Â• {g.endedAt ? new Date(g.endedAt).toLocaleString() : 'In progress'}
                       </div>
                     </div>
                     <div className={g.moneyChange >= 0 ? 'text-primary font-semibold' : 'text-destructive font-semibold'}>
