@@ -33,6 +33,7 @@ Copy-Item .env.example .env
 
 **Railway note:** use the Postgres service `DATABASE_URL` (internal `*.railway.internal`) for the backend service.
 Use `DATABASE_PUBLIC_URL` only for local/dev connections outside Railway.
+main
 
 Use `.env.production.example` as a template for production deployment (hosted PostgreSQL).
 
