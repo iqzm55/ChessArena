@@ -29,7 +29,7 @@ Copy-Item .env.example .env
 
 - `PORT` – server port (default 3001)
 - `JWT_SECRET` – secret for JWT (set in production)
-- `DATABASE_URL` – full PostgreSQL connection string **OR** set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+- `DATABASE_URL` (or `DATABASE_PUBLIC_URL`) – full PostgreSQL connection string **OR** set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
 
 Use `.env.production.example` as a template for production deployment (hosted PostgreSQL).
 

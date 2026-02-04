@@ -9,7 +9,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 /**
  * Build DATABASE_URL dynamically for local dev if not provided
  */
-let DATABASE_URL = process.env.DATABASE_URL;
+let DATABASE_URL = process.env.DATABASE_URL ?? process.env.DATABASE_PUBLIC_URL;
 if (!DATABASE_URL) {
   const host = process.env.DB_HOST;
   const port = process.env.DB_PORT;
@@ -19,7 +19,7 @@ if (!DATABASE_URL) {
 
   if (!host || !port || !name || !user || !password) {
     throw new Error(
-      'Database credentials are missing! Set DATABASE_URL for production or DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT for local development.'
+      'Database credentials are missing! Set DATABASE_URL (or DATABASE_PUBLIC_URL) for production or DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT for local development.'
     );
   }
 
