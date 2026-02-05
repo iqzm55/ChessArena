@@ -5,10 +5,13 @@ import uuid
 import os
 
 # ================= CONFIG =================
-DB_URL = os.getenv("DATABASE_URL") or "postgresql://postgres:lVDRnqJDXyJrjLfCuUsXwAdjFxafCjPa@shuttle.proxy.rlwy.net:55507/railway"
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "admin123"  # change if you want
-ADMIN_UUID = str(uuid.uuid4())
+DB_URL = os.getenv("DATABASE_URL")
+if not DB_URL:
+    raise SystemExit("DATABASE_URL is required. Set it before running setup_postgres.py")
+
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+ADMIN_UUID = os.getenv("ADMIN_ID", str(uuid.uuid4()))
 # ==========================================
 
 def get_hashed_password(password: str) -> str:
