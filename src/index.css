@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Chess Arena - Lichess-inspired Dark Theme */
+
+@layer base {
+  :root {
+    --background: 200 10% 12%;
+    --foreground: 60 10% 90%;
+
+    --card: 200 10% 15%;
+    --card-foreground: 60 10% 90%;
+
+    --popover: 200 10% 15%;
+    --popover-foreground: 60 10% 90%;
+
+    --primary: 145 63% 42%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 200 10% 20%;
+    --secondary-foreground: 60 10% 90%;
+
+    --muted: 200 10% 18%;
+    --muted-foreground: 200 10% 55%;
+
+    --accent: 35 100% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 145 63% 42%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 35 100% 50%;
+    --warning-foreground: 0 0% 0%;
+
+    --border: 200 10% 25%;
+    --input: 200 10% 20%;
+    --ring: 145 63% 42%;
+
+    --radius: 0.5rem;
+
+    /* Chess-specific colors */
+    --chess-light: 35 30% 85%;
+    --chess-dark: 145 25% 35%;
+    --chess-highlight: 55 100% 50%;
+    --chess-legal-move: 145 63% 42%;
+    --chess-check: 0 72% 51%;
+    --chess-last-move: 200 60% 45%;
+
+    /* Crypto colors */
+    --btc: 33 100% 50%;
+    --eth: 220 60% 55%;
+    --usdt: 145 63% 42%;
+
+    --sidebar-background: 200 10% 10%;
+    --sidebar-foreground: 60 10% 90%;
+    --sidebar-primary: 145 63% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 200 10% 18%;
+    --sidebar-accent-foreground: 60 10% 90%;
+    --sidebar-border: 200 10% 20%;
+    --sidebar-ring: 145 63% 42%;
+  }
+
+  .dark {
+    --background: 200 10% 12%;
+    --foreground: 60 10% 90%;
+    --card: 200 10% 15%;
+    --card-foreground: 60 10% 90%;
+    --popover: 200 10% 15%;
+    --popover-foreground: 60 10% 90%;
+    --primary: 145 63% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 200 10% 20%;
+    --secondary-foreground: 60 10% 90%;
+    --muted: 200 10% 18%;
+    --muted-foreground: 200 10% 55%;
+    --accent: 35 100% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 200 10% 25%;
+    --input: 200 10% 20%;
+    --ring: 145 63% 42%;
+    --sidebar-background: 200 10% 10%;
+    --sidebar-foreground: 60 10% 90%;
+    --sidebar-primary: 145 63% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 200 10% 18%;
+    --sidebar-accent-foreground: 60 10% 90%;
+    --sidebar-border: 200 10% 20%;
+    --sidebar-ring: 145 63% 42%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+}
+
+/* Chess piece animations */
+@keyframes piece-move {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+@keyframes pulse-check {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--chess-check) / 0.4); }
+  50% { box-shadow: 0 0 0 8px hsl(var(--chess-check) / 0); }
+}
+
+@keyframes timer-warning {
+  0%, 100% { background-color: hsl(var(--destructive)); }
+  50% { background-color: hsl(var(--destructive) / 0.7); }
+}
+
+.animate-piece-move {
+  animation: piece-move 0.2s ease-out;
+}
+
+.animate-check {
+  animation: pulse-check 1s ease-in-out infinite;
+}
+
+.animate-timer-warning {
+  animation: timer-warning 0.5s ease-in-out infinite;
+}
+
+/* Chess board styling */
+.chess-square-light {
+  background-color: hsl(var(--chess-light));
+}
+
+.chess-square-dark {
+  background-color: hsl(var(--chess-dark));
+}
+
+.chess-square-highlight {
+  background-color: hsl(var(--chess-highlight) / 0.5);
+}
+
+.chess-square-legal {
+  position: relative;
+}
+
+.chess-square-legal::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 30%;
+  height: 30%;
+  border-radius: 50%;
+  background-color: hsl(var(--chess-legal-move) / 0.6);
+}
+
+.chess-square-capture::after {
+  width: 90%;
+  height: 90%;
+  background-color: transparent;
+  border: 4px solid hsl(var(--chess-legal-move) / 0.6);
+}
+
+.chess-square-last-move {
+  background-color: hsl(var(--chess-last-move) / 0.4);
+}
