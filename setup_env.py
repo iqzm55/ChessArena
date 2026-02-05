@@ -5,13 +5,15 @@ FILES = {
 NODE_ENV=development
 
 # Backend
-BACKEND_PORT=3001
+PORT=3001
 JWT_SECRET=change_this_secret
 DATABASE_URL=postgresql://user:password@localhost:5432/chessarena
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin123
 
 # Frontend
 VITE_API_BASE_URL=http://localhost:3001
-VITE_WS_URL=ws://localhost:3001
+VITE_WS_URL=ws://localhost:3001/ws
 """,
 
     ".env.local": """# Local overrides (DO NOT COMMIT)

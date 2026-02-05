@@ -4,6 +4,8 @@ import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { randomUUID } from 'crypto';
+import bcrypt from 'bcryptjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -53,9 +55,32 @@ async function initDb(): Promise<void> {
     }
     const schema = readFileSync(schemaPath, 'utf-8');
     await pool.query(schema);
+    await seedDefaults();
   })();
 
   return initPromise;
+}
+
+async function seedDefaults(): Promise<void> {
+  const adminExists = await pool.query("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1");
+  if (adminExists.rowCount && adminExists.rowCount > 0) {
+    return;
+  }
+
+  const username = (process.env.ADMIN_USERNAME ?? 'admin').trim() || 'admin';
+  const password = process.env.ADMIN_PASSWORD ?? 'admin123';
+  const passwordHash =
+    process.env.ADMIN_PASSWORD_HASH ?? bcrypt.hashSync(password, 10);
+  const adminId = process.env.ADMIN_ID ?? `admin-${randomUUID()}`;
+
+  await pool.query(
+    `
+      INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
+      VALUES ($1, $2, $3, 'admin', NOW(), NOW())
+    `,
+    [adminId, username, passwordHash]
+  );
+  console.log(`Seeded default admin user: ${username}`);
 }
 
 export async function getDb(): Promise<Pool> {

@@ -30,12 +30,10 @@ Copy-Item .env.example .env
 - `PORT` – server port (default 3001)
 - `JWT_SECRET` – secret for JWT (set in production)
 - `DATABASE_URL` (or `DATABASE_PUBLIC_URL`) – full PostgreSQL connection string **OR** set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD` – optional seed credentials for the first admin account (defaults to `admin` / `admin123`)
 
 **Railway note:** use the Postgres service `DATABASE_URL` (internal `*.railway.internal`) for the backend service.
 Use `DATABASE_PUBLIC_URL` only for local/dev connections outside Railway.
-codex/specify-database-info-needed-for-updates-p6kgi4
-=======
-main
 
 Use `.env.production.example` as a template for production deployment (hosted PostgreSQL).
 
