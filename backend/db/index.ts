@@ -62,6 +62,7 @@ async function initDb(): Promise<void> {
 }
 
 async function seedDefaults(): Promise<void> {
+codex/fix-and-complete-chessarena-project-gsxl0a
   await pool.query('UPDATE users SET is_banned = FALSE');
 
   const defaultPassword = process.env.DEFAULT_USER_PASSWORD ?? 'changeme123';
@@ -77,6 +78,8 @@ async function seedDefaults(): Promise<void> {
     [defaultHash]
   );
 
+=======
+main
   const adminExists = await pool.query("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1");
   if (adminExists.rowCount && adminExists.rowCount > 0) {
     return;

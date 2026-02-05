@@ -31,7 +31,10 @@ Copy-Item .env.example .env
 - `JWT_SECRET` – secret for JWT (set in production)
 - `DATABASE_URL` (or `DATABASE_PUBLIC_URL`) – full PostgreSQL connection string **OR** set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` – optional seed credentials for the first admin account (defaults to `admin` / `admin123`)
+codex/fix-and-complete-chessarena-project-gsxl0a
 - `DEFAULT_USER_PASSWORD` – default password to assign to users with invalid/missing hashes (defaults to `changeme123`)
+=======
+main
 
 **Railway note:** use the Postgres service `DATABASE_URL` (internal `*.railway.internal`) for the backend service.
 Use `DATABASE_PUBLIC_URL` only for local/dev connections outside Railway.

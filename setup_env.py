@@ -10,7 +10,10 @@ JWT_SECRET=change_this_secret
 DATABASE_URL=postgresql://user:password@localhost:5432/chessarena
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=admin123
+codex/fix-and-complete-chessarena-project-gsxl0a
 DEFAULT_USER_PASSWORD=changeme123
+=======
+main
 
 # Frontend
 VITE_API_BASE_URL=http://localhost:3001

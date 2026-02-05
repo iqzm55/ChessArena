@@ -35,7 +35,10 @@ npm run dev:full
 ```
 
 The backend initializes tables automatically on first run and seeds an admin account if none exists. Defaults can be overridden via `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+codex/fix-and-complete-chessarena-project-gsxl0a
 If any users have missing/invalid password hashes, the backend will reset those to `DEFAULT_USER_PASSWORD` (defaults to `changeme123`).
+=======
+main
 
 ## Database Initialization
 
