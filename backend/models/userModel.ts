@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { getOne, run } from '../db/index.js';
 import type { UserRow } from '../db/index.js';
 
@@ -15,7 +16,7 @@ export async function getUserById(id: string): Promise<UserRow | undefined> {
 }
 
 export async function createUser(input: CreateUserInput): Promise<string> {
-  const id = `player-${Date.now()}`;
+  const id = `player-${randomUUID()}`;
   await run(
     `
       INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
