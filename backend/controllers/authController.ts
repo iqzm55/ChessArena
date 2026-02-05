@@ -81,12 +81,13 @@ export async function login(req: Request, res: Response): Promise<void> {
   }
 
   const row = await getUserByUsername(username.trim().toLowerCase());
-  if (!row || !bcrypt.compareSync(password, row.password_hash)) {
+  const invalid =
+    !row ||
+    !bcrypt.compareSync(password, row.password_hash) ||
+    row.is_banned ||
+    row.is_frozen;
+  if (invalid) {
     res.status(401).json({ error: 'Invalid username or password' });
-    return;
-  }
-  if (row.is_banned) {
-    res.status(403).json({ error: 'Account banned' });
     return;
   }
 
